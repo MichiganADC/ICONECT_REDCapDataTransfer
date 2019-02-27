@@ -55,10 +55,14 @@ Field Harmonization Table
 df_harm <- 
   read_excel("ICONECT_Variable_Mapping.xlsx")
 
-# Temporarily remove checkbox fields -- NEED TO RESOLVE
 df_harm <- df_harm %>% 
+  # Temporarily remove checkbox fields -- NEED TO RESOLVE
   filter(!str_detect(`Old Database`, "^trb_re")) %>% 
-  filter(!str_detect(`Old Database`, "^tin_rea"))
+  filter(!str_detect(`Old Database`, "^tin_rea")) %>% 
+  # Temporarily remove any one-to-many (old->new) mappings
+  # evident by spaces between field names: 
+  #     a5_loc  =>  arp_loc tnt_loc tpu_loc wkq_loc
+  filter(!str_detect(`New Database`, " "))
 ```
 
 <!-- New REDCap Template -->

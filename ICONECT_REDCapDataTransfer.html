@@ -229,7 +229,8 @@ df_harm &lt;-
 # Temporarily remove checkbox fields -- NEED TO RESOLVE
 df_harm &lt;- df_harm %&gt;% 
   filter(!str_detect(`Old Database`, &quot;^trb_re&quot;)) %&gt;% 
-  filter(!str_detect(`Old Database`, &quot;^tin_rea&quot;))</code></pre>
+  filter(!str_detect(`Old Database`, &quot;^tin_rea&quot;)) %&gt;% 
+  filter(!str_detect(`New Database`, &quot; &quot;))</code></pre>
 <!-- New REDCap Template -->
 </div>
 <div id="process-data" class="section level2">
@@ -278,11 +279,11 @@ df_harm &lt;- df_harm %&gt;%
 <pre><code>## # A tibble: 5 x 4
 ##   a     e     f         d
 ##   &lt;chr&gt; &lt;chr&gt; &lt;chr&gt; &lt;int&gt;
-## 1 1     a     A         1
-## 2 2     b     B         5
-## 3 3     c     C         2
-## 4 4     d     D         3
-## 5 5     e     E         4</code></pre>
+## 1 1     a     A         4
+## 2 2     b     B         2
+## 3 3     c     C         3
+## 4 4     d     D         1
+## 5 5     e     E         5</code></pre>
 </div>
 </div>
 
