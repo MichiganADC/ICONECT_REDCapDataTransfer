@@ -2,7 +2,12 @@
 title: "ICONECT_REDCapDataTransfer"
 author: "Nicolas May"
 date: "2/27/2019"
-output: html_document
+output: 
+  html_document:
+    theme: sandstone
+    highlight: zenburn
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
@@ -81,7 +86,7 @@ df_harm <- df_harm %>%
 df_new <- df_orig %>% 
   rename_at(.vars = vars(df_harm$`Old Database`),
             .funs = function(x) {
-              get_new_name(x, df_harm, `Old Database`,`New Database`)
+              get_new_name(x, df_harm, `Old Database`, `New Database`)
             })
 ```
 
