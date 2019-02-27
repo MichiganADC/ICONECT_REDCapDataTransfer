@@ -1,0 +1,65 @@
+---
+title: "ICONECT_REDCapDataTransfer"
+author: "Nicolas May"
+date: "2/27/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load Libraries
+
+```{r}
+library(dplyr)
+library(stringr)
+library(readr)
+library(readxl)
+```
+
+# Get Data
+
+## TEST Old REDCap Data
+
+## TEST Field Harmonization Table
+
+## TEST New REDCap Template
+
+
+## Old REDCap Data
+
+```{r}
+# Read CSV of original data, coercing all fields' data types to character
+df_orig <- 
+  read_csv("DATA_OCTRI5793Internetbas_2019-02-05_0659.csv",
+           col_types = cols(.default = col_character()))
+```
+
+## Field Harmonization Table
+
+```{r}
+# Read XLSX of field harmonization table
+df_harm <- 
+  read_excel("ICONECT_Variable_Mapping.xlsx")
+```
+
+## New REDCap Template
+
+```{r}
+# Read CSV of destination data template
+df_temp <- 
+  read_csv("ImportTemplate_OCTRI5793InternetbasedConversa_2019-02-05.csv",
+           col_types = cols(.default = col_character()))
+```
+
+# Process Data
+
+
+
+# Write Data
+
+
+
+
+
