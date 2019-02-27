@@ -11,23 +11,35 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ### Load Libraries
 
-```{r}
+```{r message=FALSE}
 library(dplyr)
 library(stringr)
 library(readr)
 library(readxl)
+library(rlang)
 ```
 
-# Get Data
+### Create Useful Function(s)
 
-## TEST Old REDCap Data
+```{r}
+get_new_name <- function(x, df, old_field_name, new_field_name) {
 
-## TEST Field Harmonization Table
+  old_field_name <- enquo(old_field_name) # rlang quosure
+  new_field_name <- enquo(new_field_name) # rlang quosure
+  
+  df %>% 
+    filter(!!old_field_name == x) %>% # unquote rlang quosure
+    select(!!new_field_name) %>%      # unquote rlang quosure
+    pull()
+}
+```
 
-## TEST New REDCap Template
 
+# WORKING CASE
 
-## Old REDCap Data
+## Get Data
+
+Old REDCap Data
 
 ```{r}
 # Read CSV of original data, coercing all fields' data types to character
@@ -36,29 +48,99 @@ df_orig <-
            col_types = cols(.default = col_character()))
 ```
 
-## Field Harmonization Table
+Field Harmonization Table
 
 ```{r}
 # Read XLSX of field harmonization table
 df_harm <- 
   read_excel("ICONECT_Variable_Mapping.xlsx")
+
+# Temporarily remove checkbox fields -- NEED TO RESOLVE
+df_harm <- df_harm %>% 
+  filter(!str_detect(`Old Database`, "^trb_re")) %>% 
+  filter(!str_detect(`Old Database`, "^tin_rea"))
 ```
 
-## New REDCap Template
+<!-- New REDCap Template -->
+
+```{r include=FALSE}
+# Read CSV of destination data template
+# df_temp <- 
+#   read_csv("ImportTemplate_OCTRI5793InternetbasedConversa_2019-02-05.csv",
+#            col_types = cols(.default = col_character()))
+```
+
+
+## Process Data
 
 ```{r}
-# Read CSV of destination data template
-df_temp <- 
-  read_csv("ImportTemplate_OCTRI5793InternetbasedConversa_2019-02-05.csv",
-           col_types = cols(.default = col_character()))
+df_new <- df_orig %>% 
+  rename_at(.vars = vars(df_harm$`Old Database`),
+            .funs = function(x) {
+              get_new_name(x, df_harm, `Old Database`,`New Database`)
+            })
 ```
 
-# Process Data
 
+## Write Data
 
+```{r}
+write_csv(df_new, "df_new.csv", na = "")
+```
 
-# Write Data
+_____
 
+_____
+
+_____
+
+# TEST CASE
+
+## Get Data
+
+TEST Old REDCap Data
+
+```{r}
+test_df_orig <-
+  tibble(
+    a = as.character(1:5),
+    b = letters[1:5],
+    c = LETTERS[1:5],
+    d = sample(1:5, 5)
+  )
+```
+
+TEST Field Harmonization Table
+
+```{r}
+test_df_harm <-
+  tibble(
+    old = c("a", "b", "c", "d"),
+    new = c("a", "e", "f", "d")
+  )
+```
+
+<!-- TEST New REDCap Template -->
+
+```{r include=FALSE}
+# test_df_temp <- 
+#   tibble(
+#     a = character(0),
+#     e = character(0),
+#     f = character(0),
+#     d = character(0)
+#   )
+```
+
+## Process Data
+
+```{r}
+test_df_orig %>% 
+  rename_at(.vars = vars(test_df_harm$old),
+            .funs = function(x) {
+              get_new_name(x, test_df_harm, old, new)
+            })
+```
 
 
 
