@@ -18,27 +18,32 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r message=FALSE}
 library(dplyr)
-library(stringr)
+# library(stringr) # no longer needed
 library(readr)
 library(readxl)
 library(rlang)
 ```
 
-### Create Useful Function(s)
+### Create Function for Renaming
 
 ```{r}
 get_new_name <- function(x, df, old_field_name, new_field_name) {
-
-  old_field_name <- enquo(old_field_name) # rlang quosure
-  new_field_name <- enquo(new_field_name) # rlang quosure
+  # Capture passed field names in rlang quosures
+  old_field_name <- enquo(old_field_name) 
+  new_field_name <- enquo(new_field_name)
   
   df %>% 
-    filter(!!old_field_name == x) %>% # unquote rlang quosure
-    select(!!new_field_name) %>%      # unquote rlang quosure
+    filter(!!old_field_name == x) %>% # unquote quosure
+    select(!!new_field_name) %>%      # unquote quosure
     pull()
 }
 ```
 
+-----
+
+-----
+
+-----
 
 # WORKING CASE
 
@@ -51,36 +56,46 @@ Old REDCap Data
 df_orig <- 
   read_csv("DATA_OCTRI5793Internetbas_2019-02-05_0659.csv",
            col_types = cols(.default = col_character()))
+
+# Field `mrp_yn` should be dropped from the original dataset
+df_orig <- df_orig %>% 
+  select(-mrp_yn)
 ```
 
 Field Harmonization Table
 
 ```{r}
-# Read XLSX of field harmonization table
+# Read XLSX of UDPATED field harmonization table
+# This field harmonization table includes dummy fields for expanded
+# checkbox fields (e.g., `*___1`, `*___2`, etc.)
 df_harm <- 
-  read_excel("ICONECT_Variable_Mapping.xlsx")
+  read_excel("ICONECT_Variable_Mapping_UPDATED_2019-02-27.xlsx")
 
+# # The filters below are now unnecessary. (2019-02-27)
+# # They were based on the original field harmonization table.
+# # These issues have been resolved.
+# df_harm <- df_harm %>% 
+#   # Temporarily remove checkbox fields -- NEED TO RESOLVE
+#   filter(!str_detect(`Old Database`, "^trb_re")) %>%
+#   filter(!str_detect(`Old Database`, "^tin_rea")) %>%
+#   # Temporarily remove any one-to-many (old->new) mappings
+#   # evident by spaces between field names:
+#   #     a5_loc  =>  arp_loc tnt_loc tpu_loc wkq_loc
+#   filter(!str_detect(`New Database`, " "))
+
+# There's a mapping that's reduandant: `a5_loc` => `arp_loc`.
+# `arp_loc` already exists, so I'm filtering out the `a5_loc` => `arp_loc`
+# row from the `df_harm` table. 
+# `arp_loc` will later be propogated/copied to redundant fields:
+# `tnt_loc`, `tpu_loc`, `wkq_loc`.
 df_harm <- df_harm %>% 
-  # Temporarily remove checkbox fields -- NEED TO RESOLVE
-  filter(!str_detect(`Old Database`, "^trb_re")) %>% 
-  filter(!str_detect(`Old Database`, "^tin_rea")) %>% 
-  # Temporarily remove any one-to-many (old->new) mappings
-  # evident by spaces between field names: 
-  #     a5_loc  =>  arp_loc tnt_loc tpu_loc wkq_loc
-  filter(!str_detect(`New Database`, " "))
-```
-
-<!-- New REDCap Template -->
-
-```{r include=FALSE}
-# Read CSV of destination data template
-# df_temp <- 
-#   read_csv("ImportTemplate_OCTRI5793InternetbasedConversa_2019-02-05.csv",
-#            col_types = cols(.default = col_character()))
+  filter(`Old Database` != "a5_loc")
 ```
 
 
 ## Process Data
+
+Rename old field names to new field names
 
 ```{r}
 df_new <- df_orig %>% 
@@ -90,18 +105,30 @@ df_new <- df_orig %>%
             })
 ```
 
+Propogate `apr_loc` field values to redundant fields: `tnt_loc`, `tpu_loc`, `wkq_loc`
+
+```{r}
+df_new <- df_new %>% 
+  mutate(tnt_loc = arp_loc,
+         tpu_loc = arp_loc,
+         wkq_loc = arp_loc)
+```
+
 
 ## Write Data
 
 ```{r}
-write_csv(df_new, "df_new.csv", na = "")
+write_csv(df_new, 
+          paste0("DATA_TO_IMPORT_", Sys.Date(), ".csv"), 
+          na = "")
 ```
 
-_____
+-----
 
-_____
+-----
 
-_____
+-----
+
 
 # TEST CASE
 
@@ -129,17 +156,6 @@ test_df_harm <-
   )
 ```
 
-<!-- TEST New REDCap Template -->
-
-```{r include=FALSE}
-# test_df_temp <- 
-#   tibble(
-#     a = character(0),
-#     e = character(0),
-#     f = character(0),
-#     d = character(0)
-#   )
-```
 
 ## Process Data
 
@@ -151,6 +167,8 @@ test_df_orig %>%
             })
 ```
 
+-----
 
+-----
 
-
+-----
