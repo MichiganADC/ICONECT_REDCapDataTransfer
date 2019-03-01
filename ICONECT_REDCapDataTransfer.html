@@ -380,9 +380,9 @@ df_orig &lt;-<span class="st"> </span>df_orig <span class="op">%&gt;%</span><spa
 <span class="co"># This field harmonization table includes dummy fields for expanded</span>
 <span class="co"># checkbox fields (e.g., `*___1`, `*___2`, etc.)</span>
 df_harm &lt;-<span class="st"> </span>
-<span class="st">  </span><span class="kw">read_excel</span>(<span class="st">&quot;ICONECT_Variable_Mapping_UPDATED_2019-02-26.xlsx&quot;</span>)
+<span class="st">  </span><span class="kw">read_excel</span>(<span class="st">&quot;ICONECT_Variable_Mapping_UPDATED_2019-02-27.xlsx&quot;</span>)
 
-<span class="co"># # The filters below are now unnecessary. </span>
+<span class="co"># # The filters below are now unnecessary. (2019-02-27)</span>
 <span class="co"># # They were based on the original field harmonization table.</span>
 <span class="co"># # These issues have been resolved.</span>
 <span class="co"># df_harm &lt;- df_harm %&gt;% </span>
@@ -399,11 +399,16 @@ df_harm &lt;-<span class="st"> </span>
 <span class="co"># row from the `df_harm` table. </span>
 <span class="co"># `arp_loc` will later be propogated/copied to redundant fields:</span>
 <span class="co"># `tnt_loc`, `tpu_loc`, `wkq_loc`.</span>
-df_harm &lt;-<span class="st"> </span>df_harm <span class="op">%&gt;%</span><span class="st"> </span>
-<span class="st">  </span><span class="kw">filter</span>(<span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span> <span class="op">!=</span><span class="st"> &quot;a5_loc&quot;</span>)</code></pre></div>
+<span class="co"># df_harm &lt;- df_harm %&gt;% </span>
+<span class="co">#   filter(`Old Database` != &quot;a5_loc&quot;)</span></code></pre></div>
 </div>
 <div id="process-data" class="section level2">
 <h2>Process Data</h2>
+<p>Keep only those fields listed in the <code>Old Database</code> column of the harmonization table.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fields_to_keep &lt;-<span class="st"> </span><span class="kw">names</span>(df_orig)[<span class="kw">names</span>(df_orig) <span class="op">%in%</span><span class="st"> </span>df_harm<span class="op">$</span><span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>]
+
+df_orig &lt;-<span class="st"> </span>df_orig <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">select_at</span>(<span class="kw">vars</span>(fields_to_keep))</code></pre></div>
 <p>Rename old field names to new field names</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_new &lt;-<span class="st"> </span>df_orig <span class="op">%&gt;%</span><span class="st"> </span>
 <span class="st">  </span><span class="kw">rename_at</span>(<span class="dt">.vars =</span> <span class="kw">vars</span>(df_harm<span class="op">$</span><span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>),
@@ -411,10 +416,16 @@ df_harm &lt;-<span class="st"> </span>df_harm <span class="op">%&gt;%</span><spa
               <span class="kw">get_new_name</span>(x, df_harm, <span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>, <span class="st">`</span><span class="dt">New Database</span><span class="st">`</span>)
             })</code></pre></div>
 <p>Propogate <code>apr_loc</code> field values to redundant fields: <code>tnt_loc</code>, <code>tpu_loc</code>, <code>wkq_loc</code></p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_new &lt;-<span class="st"> </span>df_new <span class="op">%&gt;%</span><span class="st"> </span>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_new &lt;-<span class="st"> </span>df_new <span class="op">%&gt;%</span>
 <span class="st">  </span><span class="kw">mutate</span>(<span class="dt">tnt_loc =</span> arp_loc,
          <span class="dt">tpu_loc =</span> arp_loc,
          <span class="dt">wkq_loc =</span> arp_loc)</code></pre></div>
+<p>Clean out any fields that don’t have any values.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_new &lt;-<span class="st"> </span>df_new <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">select_if</span>(
+    <span class="cf">function</span>(x) {
+      <span class="kw">any</span>(<span class="op">!</span><span class="kw">is.na</span>(x))
+    })</code></pre></div>
 </div>
 <div id="write-data" class="section level2">
 <h2>Write Data</h2>
@@ -455,11 +466,11 @@ df_harm &lt;-<span class="st"> </span>df_harm <span class="op">%&gt;%</span><spa
 <pre><code>## # A tibble: 5 x 4
 ##   a     e     f         d
 ##   &lt;chr&gt; &lt;chr&gt; &lt;chr&gt; &lt;int&gt;
-## 1 1     a     A         2
-## 2 2     b     B         1
-## 3 3     c     C         3
-## 4 4     d     D         4
-## 5 5     e     E         5</code></pre>
+## 1 1     a     A         3
+## 2 2     b     B         5
+## 3 3     c     C         4
+## 4 4     d     D         1
+## 5 5     e     E         2</code></pre>
 <hr />
 <hr />
 <hr />

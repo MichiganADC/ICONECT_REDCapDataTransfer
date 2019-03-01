@@ -88,12 +88,22 @@ df_harm <-
 # row from the `df_harm` table. 
 # `arp_loc` will later be propogated/copied to redundant fields:
 # `tnt_loc`, `tpu_loc`, `wkq_loc`.
-df_harm <- df_harm %>% 
-  filter(`Old Database` != "a5_loc")
+# df_harm <- df_harm %>% 
+#   filter(`Old Database` != "a5_loc")
 ```
 
 
 ## Process Data
+
+Keep only those fields listed in the `Old Database` column of the harmonization table.
+
+```{r}
+fields_to_keep <- names(df_orig)[names(df_orig) %in% df_harm$`Old Database`]
+
+df_orig <- df_orig %>% 
+  select_at(vars(fields_to_keep))
+```
+
 
 Rename old field names to new field names
 
@@ -108,10 +118,20 @@ df_new <- df_orig %>%
 Propogate `apr_loc` field values to redundant fields: `tnt_loc`, `tpu_loc`, `wkq_loc`
 
 ```{r}
-df_new <- df_new %>% 
+df_new <- df_new %>%
   mutate(tnt_loc = arp_loc,
          tpu_loc = arp_loc,
          wkq_loc = arp_loc)
+```
+
+Clean out any fields that don't have any values.
+
+```{r}
+df_new <- df_new %>% 
+  select_if(
+    function(x) {
+      any(!is.na(x))
+    })
 ```
 
 
