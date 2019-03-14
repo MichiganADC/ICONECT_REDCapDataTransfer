@@ -18,13 +18,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r message=FALSE}
 library(dplyr)
-# library(stringr) # no longer needed
 library(readr)
 library(readxl)
+library(stringr)
+library(tidyr)
 library(rlang)
 ```
 
-### Create Function for Renaming
+### Helper Functions
 
 ```{r}
 get_new_name <- function(x, df, old_field_name, new_field_name) {
@@ -39,6 +40,36 @@ get_new_name <- function(x, df, old_field_name, new_field_name) {
 }
 ```
 
+```{r}
+# Function that returns non-empty fields of a df
+get_nonempty_fields <- function(df) {
+  df %>% 
+    select_if( function(x) any(!is.na(x)) )
+}
+```
+
+```{r}
+# Function that returns a logical vector of which rows are non-empty
+locate_nonempty_records <- function(df) {
+  has_data_lgl <- logical(length = nrow(df))
+  for (i in seq_len(nrow(df))) {
+    row_list <- as.list(df[i, ])
+    if (any(!is.na(row_list))) {
+      has_data_lgl[i] <- TRUE
+    } else {
+      has_data_lgl[i] <- FALSE
+    }
+  }
+  has_data_lgl
+}
+
+# Function that cleans out rows where all relevant fields are empty
+get_nonempty_records <- function(df, relevant_fields) {
+  nonempty_rows <- locate_nonempty_records(df[, relevant_fields])
+  df[nonempty_rows, ]
+}
+```
+
 -----
 
 -----
@@ -49,27 +80,33 @@ get_new_name <- function(x, df, old_field_name, new_field_name) {
 
 ## Get Data
 
-Old REDCap Data
+Load archived MAIN REDCap data.
 
 ```{r}
 # Read CSV of original data, coercing all fields' data types to character
-df_orig <- 
+df_arch <- 
   read_csv("DATA_OCTRI5793Internetbas_2019-02-05_0659.csv",
-           col_types = cols(.default = col_character()))
+           col_types = cols(.default = col_character())) %>% 
+  na_if("") %>% 
+  filter(str_detect(ts_sub_id, "^C\\d{4}"))
 
 # Field `mrp_yn` should be dropped from the original dataset
-df_orig <- df_orig %>% 
+df_arch <- df_arch %>% 
   select(-mrp_yn)
+
+# df_arch <- get_nonempty_fields(df_arch)
+# df_arch <- get_nonempty_records(df_arch)
 ```
 
-Field Harmonization Table
+Load REDCap field harmonization table.
 
 ```{r}
 # Read XLSX of UDPATED field harmonization table
 # This field harmonization table includes dummy fields for expanded
 # checkbox fields (e.g., `*___1`, `*___2`, etc.)
-df_harm <- 
-  read_excel("ICONECT_Variable_Mapping_UPDATED_2019-02-27.xlsx")
+df_harm_field <- 
+  read_excel("ICONECT_Variable_Mapping_UPDATED_2019-02-27.xlsx") %>% 
+  na_if("")
 
 # # The filters below are now unnecessary. (2019-02-27)
 # # They were based on the original field harmonization table.
@@ -90,57 +127,378 @@ df_harm <-
 # `tnt_loc`, `tpu_loc`, `wkq_loc`.
 # df_harm <- df_harm %>% 
 #   filter(`Old Database` != "a5_loc")
+
+# Get rid of any rows whose values with with "_complete"
+df_harm_field <- df_harm_field %>% 
+  filter(str_detect(`Old Database`, pattern = "_complete$", negate = TRUE) |
+           str_detect(`New Database`, pattern = "_complete$", negate = TRUE))
+```
+
+Load REDCap event name harmonization table.
+
+```{r}
+df_harm_event <-
+  read_excel("Events Comparison and Repeating Instruments.xlsx",
+             sheet = "Old vs New Events",
+             range = "A1:B232") %>% 
+  na_if("")
+
+# Keep only those rows where both event names exist and they differ
+# names(df_harm_event); names(df_harm_event)[1];
+# sym(names(df_harm_event)[1])
+df_harm_event <- df_harm_event %>% 
+  filter(!is.na(!!sym(names(df_harm_event)[1]))) %>% 
+  filter(!is.na(!!sym(names(df_harm_event)[2]))) %>% 
+  filter(!!sym(names(df_harm_event)[1]) != 
+           !!sym(names(df_harm_event)[2]))
+```
+
+Load customized REDCap instrument designations table.
+
+```{r}
+df_harm_instr <-
+  read_csv(paste0("OCTRI5793InternetbasedConversa_InstrumentDesignations",
+                  "_2019-03-07.csv"),
+           col_types = cols(.default = col_character())) %>% 
+  na_if("") %>% 
+  select(-arm_num) %>% 
+  rename(test_field = new_date_field) %>% 
+  mutate(redcap_repeat_instrument = as.integer(redcap_repeat_instrument))
+```
+
+Load current MAIN REDCap data dictionary.
+
+```{r}
+# df_data_dict <-
+#   read_csv("OCTRI5793InternetbasedConversa_DataDictionary_2019-03-07.csv",
+#            col_types = cols(.default = col_character())) %>% 
+#   na_if("") %>% 
+#   select(`Variable / Field Name`, `Form Name`) %>% 
+#   rename(field_name = `Variable / Field Name`,
+#          form_name = `Form Name`)
+```
+
+
+Load current MAIN REDCap data.
+
+```{r}
+df_curr <-
+  read_csv("OCTRI5793Internetbas_DATA_2019-03-07_0657.csv",
+           col_types = cols(.default = col_character())) %>% 
+  na_if("") %>% 
+  filter(str_detect(ts_sub_id, "^C\\d{4}"))
+
+# df_curr <- get_nonempty_fields(df_curr)
+# df_curr <- get_nonempty_records(df_curr)
 ```
 
 
 ## Process Data
 
+**SCRATCH THIS STEP** Get rid of any fields that end with `*_complete`.
+
+```{r}
+# df_arch <- df_arch %>% 
+#   select(-matches("_complete$"))
+# 
+# df_curr <- df_curr %>% 
+#   select(-matches("_complete$"))
+```
+
+Get rid of any records with `redcap_event_name` == `admin_arm_1`
+
 Keep only those fields listed in the `Old Database` column of the harmonization table.
 
 ```{r}
-fields_to_keep <- names(df_orig)[names(df_orig) %in% df_harm$`Old Database`]
+fields_to_keep <- 
+  names(df_arch)[names(df_arch) %in% df_harm_field$`Old Database`]
 
-df_orig <- df_orig %>% 
+df_arch_0 <- df_arch %>% 
   select_at(vars(fields_to_keep))
 ```
 
-
-Rename old field names to new field names
+Rename archive field names to current field names.
 
 ```{r}
-df_new <- df_orig %>% 
-  rename_at(.vars = vars(df_harm$`Old Database`),
+df_arch_1 <- df_arch_0 %>% 
+  rename_at(.vars = vars(df_harm_field$`Old Database`),
             .funs = function(x) {
-              get_new_name(x, df_harm, `Old Database`, `New Database`)
+              get_new_name(x, df_harm_field, `Old Database`, `New Database`)
             })
 ```
 
-Propogate `apr_loc` field values to redundant fields: `tnt_loc`, `tpu_loc`, `wkq_loc`
+**SCRATCH THIS STEP** Propogate `apr_loc` field values to redundant fields: `tnt_loc`, `tpu_loc`, `wkq_loc`.
 
 ```{r}
-df_new <- df_new %>%
-  mutate(tnt_loc = arp_loc,
-         tpu_loc = arp_loc,
-         wkq_loc = arp_loc)
+# df_arch_1 <- df_arch_1 %>%
+#   mutate(tnt_loc = arp_loc,
+#          tpu_loc = arp_loc,
+#          wkq_loc = arp_loc)
+```
+
+Rename archive `redcap_event_name`s to current `redcap_event_names`s.
+
+```{r}
+df_arch_2 <- df_arch_1 %>% 
+  mutate(redcap_event_name = case_when(
+    redcap_event_name == "bv1_arm_1"      ~ "bl_v_arm_1",
+    redcap_event_name == "bv2_arm_1"      ~ "bl_v_arm_1",
+    redcap_event_name == "06v1_cdx_arm_1" ~ "06_cdx_arm_1",
+    redcap_event_name == "06v1_arm_1"     ~ "06_v_arm_1",
+    redcap_event_name == "06v2_arm_1"     ~ "06_v_arm_1",
+    redcap_event_name == "12v1_cdx_arm_1" ~ "12_cdx_arm_1",
+    redcap_event_name == "12v1_arm_1"     ~ "12_v_arm_1",
+    redcap_event_name == "12v2_arm_1"     ~ "12_v_arm_1",
+    TRUE ~ redcap_event_name
+  ))
+
+# # Make a copy of `df_arch_3`
+df_arch_3 <- df_arch_2
+# df_arch_3 <- df_arch_2 %>% get_nonempty_records() %>% get_nonempty_fields()
+```
+
+Parse out rows that have `redcap_repeat_instrument`s from structure of current MAIN REDCap project.
+
+> **Note**: This part gets pretty complicated because we're doing some unconventional data munging and dealing with lots of special cases.
+
+```{r}
+# Function that keeps only those values in a char vector that
+# appear as fields/names in the passed df
+keep_from_df_names <- function(xs, df) {
+  df_names <- names(df)
+  for (i in seq_along(xs)) { 
+    if (!(xs[i] %in% df_names)) {
+      xs[i] <- NA_character_ 
+    }
+  }
+  xs
+}
+
+# Function that does the heavy row-wise parsing by 
+# `ts_sub_id`, `redcap_event_name`, `redcap_repeat_instrument`, 
+parse_rri <- function(df, id, ren, rri, rri_test_field, rri_keep_fields) {
+  
+  # Erase (insert NAs) into df subset that will be copied in a new row below
+  df_1 <- rlang::duplicate(df)
+  if (
+    !identical(
+      which(df_1$ts_sub_id == id & 
+            df_1$redcap_event_name == ren &
+            is.na(df_1$redcap_repeat_instrument)),
+      integer(0))
+  ) {
+    df_1[which(df_1$ts_sub_id == id & 
+                   df_1$redcap_event_name == ren &
+                   is.na(df_1$redcap_repeat_instrument)),
+           rri_keep_fields] <- NA_character_
+  }
+  
+  # Concatenate necessary fronter fields with passed `rri_keep_fields`
+  rri_keep_fields_new <-
+    c(
+      "ts_sub_id",
+      "redcap_event_name",
+      "redcap_repeat_instrument",
+      "redcap_repeat_instance",
+      rri_keep_fields
+    )
+  
+  # Create a new df keeping only necessary and passed `rri_keep_fields` and
+  # populate the `redcap_repeat_instrument` field with passed `rri` string
+  df_2 <- rlang::duplicate(df)
+  df_2 <- df_2 %>%
+    select(rri_keep_fields_new) %>%
+    filter(!is.na(ts_sub_id)) %>% 
+    filter(ts_sub_id == id) %>% 
+    filter(!is.na(redcap_event_name)) %>%
+    filter(redcap_event_name == ren) %>%
+    filter(is.na(redcap_repeat_instrument)) %>%
+    mutate(redcap_repeat_instrument = rri)
+  
+  bind_rows(df_1, df_2)
+}
+```
+
+```{r}
+# Reshape / clean-up `df_harm_instr` for this task
+df_instr_desig <- df_harm_instr %>% 
+  filter(redcap_repeat_instrument == 1) %>% 
+  filter(form != "previsit_stability_screening") %>% 
+  filter(form != "admin_reportable_event_form")
+
+df_instr_desig[6:ncol(df_instr_desig)] <- 
+  df_instr_desig[6:ncol(df_instr_desig)] %>% 
+  purrr::map_df(function(x) keep_from_df_names(x, df_arch_3))
+
+df_instr_desig <- df_instr_desig %>% 
+  purrr::map_df(~ replace_na(.x, "")) %>% 
+  unite("keep_fields", keep_fields_001:keep_fields_132, sep = ",") %>% 
+  mutate(keep_fields = str_extract_all(keep_fields, "\\w+")) %>% 
+  na_if("")
+```
+
+```{r}
+for (id in unique(df_arch_3$ts_sub_id)) {
+  cat(paste0("Processing `ts_sub_id`: ", id, "\n"))
+  for (i in seq_len(nrow(df_instr_desig))) {
+    df_arch_3 <-
+      parse_rri(df = df_arch_3,
+                id = id,
+                ren = df_instr_desig[[i, "unique_event_name"]],
+                rri = df_instr_desig[[i, "form"]],
+                rri_test_field = df_instr_desig[[i, "test_field"]],
+                rri_keep_fields = df_instr_desig[[i, "keep_fields"]])
+  }
+}
+# write_csv(df_arch_3, "df_arch_3.csv", na = "")
+```
+
+Keep only fields in `df_curr` that also appear in `df_arch_3`.
+
+```{r}
+names_df_arch_3 <- names(df_arch_3)
+names_df_curr <- names(df_curr)
+
+new_names_df_curr <- names_df_curr[names_df_curr %in% names_df_arch_3]
+
+df_curr_0 <- df_curr %>% 
+  select(new_names_df_curr)
+```
+
+Get rid of any data that is being entered manually.
+
+```{r}
+df_curr_1 <- df_curr_0
+# filters and deselects will go here once I get word from Jacob/Sarah
+```
+
+Row-bind `df_arch_3` and `df_curr_1` to create `df_arch_curr`.
+
+```{r}
+df_arch_curr <- bind_rows(df_arch_3, df_curr_1)
+# df_arch_curr <- bind_rows(df_arch_3, df_curr_1) %>%
+#   get_nonempty_records() %>% 
+#   get_nonempty_fields()
+write_csv(df_arch_curr, "df_arch_curr.csv", na = "")
+```
+
+Renumber `redcap_repeat_instance` values based on dates of the appropriate date field (i.e., `*_dat` or `*_dtc` from `test_field` in `df_instr_desig`).
+
+```{r}
+calc_rri_instance_num <- function(df, id, ren, rri, rri_date_field) {
+  
+  # cat(paste0(class(rri_date_field), " "))
+  cat(paste0(rri_date_field, " "))
+  
+  # Set aside irrelevant rows
+  df_1 <- df %>%
+    filter(ts_sub_id != id | 
+             redcap_event_name != ren |
+             (redcap_repeat_instrument != rri |
+                is.na(redcap_repeat_instrument)))
+  
+  # Count the `redcap_repeat_instances` for the given
+  # `redcap_event_name` and `redcap_repeat_instrument`
+  df_2 <- df %>%
+    filter(ts_sub_id == id &
+             redcap_event_name == ren &
+             redcap_repeat_instrument == rri) %>%
+    arrange(ts_sub_id,
+            redcap_event_name,
+            redcap_repeat_instrument,
+            !!ensym(rri_date_field)) %>%
+    mutate(rri_instance_unit = 1L) %>%
+    group_by(ts_sub_id,
+             redcap_event_name,
+             redcap_repeat_instrument) %>%
+    mutate(redcap_repeat_instance = cumsum(rri_instance_unit)) %>%
+    ungroup() %>%
+    select(-rri_instance_unit)
+  
+  bind_rows(df_1, df_2)
+}
+
+df_arch_curr_0 <- df_arch_curr %>% 
+  mutate_all(.funs = as.character) %>% 
+  mutate(redcap_repeat_instance = as.integer(redcap_repeat_instance))
+
+df_instr_desig_1 <- df_instr_desig %>% 
+  filter(test_field != "res_dtc", 
+         test_field != "msc_d1",
+         test_field != "are_dat") %>% 
+  mutate(test_field = as.character(test_field))
+```
+
+```{r}
+for (id in unique(df_arch_curr_0$ts_sub_id)) {
+  cat(paste0("\nProcessing `ts_sub_id`: ", id, "\n"))
+  for (i in seq_len(nrow(df_instr_desig_1))) {
+    df_arch_curr_0 <-
+      calc_rri_instance_num(df = df_arch_curr_0,
+                id = id,
+                ren = df_instr_desig_1[[i, "unique_event_name"]],
+                rri = df_instr_desig_1[[i, "form"]],
+                rri_date_field = df_instr_desig_1[[i, "test_field"]])
+    }
+}
+
+# write_csv(df_arch_curr_0, "df_arch_curr_0.csv", na = "")
 ```
 
 Clean out any fields that don't have any values.
 
 ```{r}
-df_new <- df_new %>% 
-  select_if(
-    function(x) {
-      any(!is.na(x))
-    })
+df_arch_curr_1 <- df_arch_curr_0 %>% 
+  get_nonempty_records() %>% 
+  get_nonempty_fields()
+
+# print(object.size(df_arch_curr_1), units = "auto")
+```
+
+Clean out any rows that only have data in the fronter fields: `ts_sub_id`, `redcap_event_name`, `redcap_repeat_instrument`, `redcap_repeat_instance`, `redcap_data_access_group`. 
+
+```{r}
+names_df_arch_curr_1 <- names(df_arch_curr_1)
+fields_to_remove <- 
+  c("ts_sub_id"
+    , "redcap_event_name"
+    , "redcap_repeat_instrument"
+    , "redcap_repeat_instance"
+    , "redcap_data_access_group"
+    )
+rel_fields <- 
+  names_df_arch_curr_1[!(names_df_arch_curr_1 %in% fields_to_remove)]
+```
+
+```{r}
+df_arch_curr_2 <- get_nonempty_records(df_arch_curr_1, rel_fields)
+
+# print(object.size(df_arch_curr_2), units = "auto")
+```
+
+Split data in two:
+
+1. Records without repeating instruments.
+2. Records with repeating instruments.
+
+```{r}
+# 1. Records without repeating instruments
+df_arch_curr_nonrep <- df_arch_curr_2 %>% 
+  filter(is.na(redcap_repeat_instrument) & is.na(redcap_repeat_instance))
+
+# 2. Records with repeating instruments
+df_arch_curr_rep <- df_arch_curr_2 %>% 
+  filter(!is.na(redcap_repeat_instrument) | !is.na(redcap_repeat_instance))
 ```
 
 
 ## Write Data
 
 ```{r}
-write_csv(df_new, 
-          paste0("DATA_TO_IMPORT_", Sys.Date(), ".csv"), 
-          na = "")
+write_csv(x = df_arch_curr_nonrep, na = "",
+          path = paste0("IMPORT_DATA_NONREPEAT_", Sys.Date(), ".csv"))
+write_csv(x = df_arch_curr_rep, na = "",
+          path = paste0("IMPORT_DATA_REPEAT_", Sys.Date(), ".csv"))
 ```
 
 -----
@@ -192,3 +550,31 @@ test_df_orig %>%
 -----
 
 -----
+
+```{r include=FALSE}
+###@    #==--  :  --==#    @##==---==##@##==---==##@    #==--  :  --==#    @###
+#==##@    #==-- --==#    @##==---==##@   @##==---==##@    #==-- --==#    @##==#
+#--==##@    #==-==#    @##==---==##@   #   @##==---==##@    #==-==#    @##==--#
+#=---==##@    #=#    @##==---==##@    #=#    @##==---==##@    #=#    @##==---=#
+##==---==##@   #   @##==---==##@    #==-==#    @##==---==##@   #   @##==---==##
+#@##==---==##@   @##==---==##@    #==-- --==#    @##==---==##@   @##==---==##@#
+#  @##==---==##@##==---==##@    EXTRA  :  SPACE    @##==---==##@##==---==##@  #
+#@##==---==##@   @##==---==##@    #==-- --==#    @##==---==##@   @##==---==##@#
+##==---==##@   #   @##==---==##@    #==-==#    @##==---==##@   #   @##==---==##
+#=---==##@    #=#    @##==---==##@    #=#    @##==---==##@    #=#    @##==---=#
+#--==##@    #==-==#    @##==---==##@   #   @##==---==##@    #==-==#    @##==--#
+#==##@    #==-- --==#    @##==---==##@   @##==---==##@    #==-- --==#    @##==#
+###@    #==--  :  --==#    @##==---==##@##==---==##@    #==--  :  --==#    @###
+#==##@    #==-- --==#    @##==---==##@   @##==---==##@    #==-- --==#    @##==#
+#--==##@    #==-==#    @##==---==##@   #   @##==---==##@    #==-==#    @##==--#
+#=---==##@    #=#    @##==---==##@    #=#    @##==---==##@    #=#    @##==---=#
+##==---==##@   #   @##==---==##@    #==-==#    @##==---==##@   #   @##==---==##
+#@##==---==##@   @##==---==##@    #==-- --==#    @##==---==##@   @##==---==##@#
+#  @##==---==##@##==---==##@    EXTRA  :  SPACE    @##==---==##@##==---==##@  #
+#@##==---==##@   @##==---==##@    #==-- --==#    @##==---==##@   @##==---==##@#
+##==---==##@   #   @##==---==##@    #==-==#    @##==---==##@   #   @##==---==##
+#=---==##@    #=#    @##==---==##@    #=#    @##==---==##@    #=#    @##==---=#
+#--==##@    #==-==#    @##==---==##@   #   @##==---==##@    #==-==#    @##==--#
+#==##@    #==-- --==#    @##==---==##@   @##==---==##@    #==-- --==#    @##==#
+###@    #==--  :  --==#    @##==---==##@##==---==##@    #==--  :  --==#    @###
+```

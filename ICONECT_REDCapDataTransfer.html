@@ -341,13 +341,14 @@ div.tocify {
 <div id="load-libraries" class="section level3">
 <h3>Load Libraries</h3>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">library</span>(dplyr)
-<span class="co"># library(stringr) # no longer needed</span>
 <span class="kw">library</span>(readr)
 <span class="kw">library</span>(readxl)
+<span class="kw">library</span>(stringr)
+<span class="kw">library</span>(tidyr)
 <span class="kw">library</span>(rlang)</code></pre></div>
 </div>
-<div id="create-function-for-renaming" class="section level3">
-<h3>Create Function for Renaming</h3>
+<div id="helper-functions" class="section level3">
+<h3>Helper Functions</h3>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">get_new_name &lt;-<span class="st"> </span><span class="cf">function</span>(x, df, old_field_name, new_field_name) {
   <span class="co"># Capture passed field names in rlang quosures</span>
   old_field_name &lt;-<span class="st"> </span><span class="kw">enquo</span>(old_field_name) 
@@ -358,6 +359,30 @@ div.tocify {
 <span class="st">    </span><span class="kw">select</span>(<span class="op">!!</span>new_field_name) <span class="op">%&gt;%</span><span class="st">      </span><span class="co"># unquote quosure</span>
 <span class="st">    </span><span class="kw">pull</span>()
 }</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># Function that returns non-empty fields of a df</span>
+get_nonempty_fields &lt;-<span class="st"> </span><span class="cf">function</span>(df) {
+  df <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">    </span><span class="kw">select_if</span>( <span class="cf">function</span>(x) <span class="kw">any</span>(<span class="op">!</span><span class="kw">is.na</span>(x)) )
+}</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># Function that returns a logical vector of which rows are non-empty</span>
+locate_nonempty_records &lt;-<span class="st"> </span><span class="cf">function</span>(df) {
+  has_data_lgl &lt;-<span class="st"> </span><span class="kw">logical</span>(<span class="dt">length =</span> <span class="kw">nrow</span>(df))
+  <span class="cf">for</span> (i <span class="cf">in</span> <span class="kw">seq_len</span>(<span class="kw">nrow</span>(df))) {
+    row_list &lt;-<span class="st"> </span><span class="kw">as.list</span>(df[i, ])
+    <span class="cf">if</span> (<span class="kw">any</span>(<span class="op">!</span><span class="kw">is.na</span>(row_list))) {
+      has_data_lgl[i] &lt;-<span class="st"> </span><span class="ot">TRUE</span>
+    } <span class="cf">else</span> {
+      has_data_lgl[i] &lt;-<span class="st"> </span><span class="ot">FALSE</span>
+    }
+  }
+  has_data_lgl
+}
+
+<span class="co"># Function that cleans out rows where all relevant fields are empty</span>
+get_nonempty_records &lt;-<span class="st"> </span><span class="cf">function</span>(df, relevant_fields) {
+  nonempty_rows &lt;-<span class="st"> </span><span class="kw">locate_nonempty_records</span>(df[, relevant_fields])
+  df[nonempty_rows, ]
+}</code></pre></div>
 <hr />
 <hr />
 <hr />
@@ -366,21 +391,27 @@ div.tocify {
 <h1>WORKING CASE</h1>
 <div id="get-data" class="section level2">
 <h2>Get Data</h2>
-<p>Old REDCap Data</p>
+<p>Load archived MAIN REDCap data.</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># Read CSV of original data, coercing all fields' data types to character</span>
-df_orig &lt;-<span class="st"> </span>
+df_arch &lt;-<span class="st"> </span>
 <span class="st">  </span><span class="kw">read_csv</span>(<span class="st">&quot;DATA_OCTRI5793Internetbas_2019-02-05_0659.csv&quot;</span>,
-           <span class="dt">col_types =</span> <span class="kw">cols</span>(<span class="dt">.default =</span> <span class="kw">col_character</span>()))
+           <span class="dt">col_types =</span> <span class="kw">cols</span>(<span class="dt">.default =</span> <span class="kw">col_character</span>())) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">na_if</span>(<span class="st">&quot;&quot;</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(<span class="kw">str_detect</span>(ts_sub_id, <span class="st">&quot;^C</span><span class="ch">\\</span><span class="st">d{4}&quot;</span>))
 
 <span class="co"># Field `mrp_yn` should be dropped from the original dataset</span>
-df_orig &lt;-<span class="st"> </span>df_orig <span class="op">%&gt;%</span><span class="st"> </span>
-<span class="st">  </span><span class="kw">select</span>(<span class="op">-</span>mrp_yn)</code></pre></div>
-<p>Field Harmonization Table</p>
+df_arch &lt;-<span class="st"> </span>df_arch <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">select</span>(<span class="op">-</span>mrp_yn)
+
+<span class="co"># df_arch &lt;- get_nonempty_fields(df_arch)</span>
+<span class="co"># df_arch &lt;- get_nonempty_records(df_arch)</span></code></pre></div>
+<p>Load REDCap field harmonization table.</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># Read XLSX of UDPATED field harmonization table</span>
 <span class="co"># This field harmonization table includes dummy fields for expanded</span>
 <span class="co"># checkbox fields (e.g., `*___1`, `*___2`, etc.)</span>
-df_harm &lt;-<span class="st"> </span>
-<span class="st">  </span><span class="kw">read_excel</span>(<span class="st">&quot;ICONECT_Variable_Mapping_UPDATED_2019-02-27.xlsx&quot;</span>)
+df_harm_field &lt;-<span class="st"> </span>
+<span class="st">  </span><span class="kw">read_excel</span>(<span class="st">&quot;ICONECT_Variable_Mapping_UPDATED_2019-02-27.xlsx&quot;</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">na_if</span>(<span class="st">&quot;&quot;</span>)
 
 <span class="co"># # The filters below are now unnecessary. (2019-02-27)</span>
 <span class="co"># # They were based on the original field harmonization table.</span>
@@ -400,38 +431,482 @@ df_harm &lt;-<span class="st"> </span>
 <span class="co"># `arp_loc` will later be propogated/copied to redundant fields:</span>
 <span class="co"># `tnt_loc`, `tpu_loc`, `wkq_loc`.</span>
 <span class="co"># df_harm &lt;- df_harm %&gt;% </span>
-<span class="co">#   filter(`Old Database` != &quot;a5_loc&quot;)</span></code></pre></div>
+<span class="co">#   filter(`Old Database` != &quot;a5_loc&quot;)</span>
+
+<span class="co"># Get rid of any rows whose values with with &quot;_complete&quot;</span>
+df_harm_field &lt;-<span class="st"> </span>df_harm_field <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(<span class="kw">str_detect</span>(<span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>, <span class="dt">pattern =</span> <span class="st">&quot;_complete$&quot;</span>, <span class="dt">negate =</span> <span class="ot">TRUE</span>) <span class="op">|</span>
+<span class="st">           </span><span class="kw">str_detect</span>(<span class="st">`</span><span class="dt">New Database</span><span class="st">`</span>, <span class="dt">pattern =</span> <span class="st">&quot;_complete$&quot;</span>, <span class="dt">negate =</span> <span class="ot">TRUE</span>))</code></pre></div>
+<p>Load REDCap event name harmonization table.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_harm_event &lt;-
+<span class="st">  </span><span class="kw">read_excel</span>(<span class="st">&quot;Events Comparison and Repeating Instruments.xlsx&quot;</span>,
+             <span class="dt">sheet =</span> <span class="st">&quot;Old vs New Events&quot;</span>,
+             <span class="dt">range =</span> <span class="st">&quot;A1:B232&quot;</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">na_if</span>(<span class="st">&quot;&quot;</span>)
+
+<span class="co"># Keep only those rows where both event names exist and they differ</span>
+<span class="co"># names(df_harm_event); names(df_harm_event)[1];</span>
+<span class="co"># sym(names(df_harm_event)[1])</span>
+df_harm_event &lt;-<span class="st"> </span>df_harm_event <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(<span class="op">!</span><span class="kw">is.na</span>(<span class="op">!!</span><span class="kw">sym</span>(<span class="kw">names</span>(df_harm_event)[<span class="dv">1</span>]))) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(<span class="op">!</span><span class="kw">is.na</span>(<span class="op">!!</span><span class="kw">sym</span>(<span class="kw">names</span>(df_harm_event)[<span class="dv">2</span>]))) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(<span class="op">!!</span><span class="kw">sym</span>(<span class="kw">names</span>(df_harm_event)[<span class="dv">1</span>]) <span class="op">!=</span><span class="st"> </span>
+<span class="st">           </span><span class="op">!!</span><span class="kw">sym</span>(<span class="kw">names</span>(df_harm_event)[<span class="dv">2</span>]))</code></pre></div>
+<p>Load customized REDCap instrument designations table.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_harm_instr &lt;-
+<span class="st">  </span><span class="kw">read_csv</span>(<span class="kw">paste0</span>(<span class="st">&quot;OCTRI5793InternetbasedConversa_InstrumentDesignations&quot;</span>,
+                  <span class="st">&quot;_2019-03-07.csv&quot;</span>),
+           <span class="dt">col_types =</span> <span class="kw">cols</span>(<span class="dt">.default =</span> <span class="kw">col_character</span>())) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">na_if</span>(<span class="st">&quot;&quot;</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">select</span>(<span class="op">-</span>arm_num) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">rename</span>(<span class="dt">test_field =</span> new_date_field) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">mutate</span>(<span class="dt">redcap_repeat_instrument =</span> <span class="kw">as.integer</span>(redcap_repeat_instrument))</code></pre></div>
+<p>Load current MAIN REDCap data dictionary.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># df_data_dict &lt;-</span>
+<span class="co">#   read_csv(&quot;OCTRI5793InternetbasedConversa_DataDictionary_2019-03-07.csv&quot;,</span>
+<span class="co">#            col_types = cols(.default = col_character())) %&gt;% </span>
+<span class="co">#   na_if(&quot;&quot;) %&gt;% </span>
+<span class="co">#   select(`Variable / Field Name`, `Form Name`) %&gt;% </span>
+<span class="co">#   rename(field_name = `Variable / Field Name`,</span>
+<span class="co">#          form_name = `Form Name`)</span></code></pre></div>
+<p>Load current MAIN REDCap data.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_curr &lt;-
+<span class="st">  </span><span class="kw">read_csv</span>(<span class="st">&quot;OCTRI5793Internetbas_DATA_2019-03-07_0657.csv&quot;</span>,
+           <span class="dt">col_types =</span> <span class="kw">cols</span>(<span class="dt">.default =</span> <span class="kw">col_character</span>())) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">na_if</span>(<span class="st">&quot;&quot;</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(<span class="kw">str_detect</span>(ts_sub_id, <span class="st">&quot;^C</span><span class="ch">\\</span><span class="st">d{4}&quot;</span>))
+
+<span class="co"># df_curr &lt;- get_nonempty_fields(df_curr)</span>
+<span class="co"># df_curr &lt;- get_nonempty_records(df_curr)</span></code></pre></div>
 </div>
 <div id="process-data" class="section level2">
 <h2>Process Data</h2>
+<p><strong>SCRATCH THIS STEP</strong> Get rid of any fields that end with <code>*_complete</code>.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># df_arch &lt;- df_arch %&gt;% </span>
+<span class="co">#   select(-matches(&quot;_complete$&quot;))</span>
+<span class="co"># </span>
+<span class="co"># df_curr &lt;- df_curr %&gt;% </span>
+<span class="co">#   select(-matches(&quot;_complete$&quot;))</span></code></pre></div>
+<p>Get rid of any records with <code>redcap_event_name</code> == <code>admin_arm_1</code></p>
 <p>Keep only those fields listed in the <code>Old Database</code> column of the harmonization table.</p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fields_to_keep &lt;-<span class="st"> </span><span class="kw">names</span>(df_orig)[<span class="kw">names</span>(df_orig) <span class="op">%in%</span><span class="st"> </span>df_harm<span class="op">$</span><span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>]
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fields_to_keep &lt;-<span class="st"> </span>
+<span class="st">  </span><span class="kw">names</span>(df_arch)[<span class="kw">names</span>(df_arch) <span class="op">%in%</span><span class="st"> </span>df_harm_field<span class="op">$</span><span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>]
 
-df_orig &lt;-<span class="st"> </span>df_orig <span class="op">%&gt;%</span><span class="st"> </span>
+df_arch_<span class="dv">0</span> &lt;-<span class="st"> </span>df_arch <span class="op">%&gt;%</span><span class="st"> </span>
 <span class="st">  </span><span class="kw">select_at</span>(<span class="kw">vars</span>(fields_to_keep))</code></pre></div>
-<p>Rename old field names to new field names</p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_new &lt;-<span class="st"> </span>df_orig <span class="op">%&gt;%</span><span class="st"> </span>
-<span class="st">  </span><span class="kw">rename_at</span>(<span class="dt">.vars =</span> <span class="kw">vars</span>(df_harm<span class="op">$</span><span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>),
+<p>Rename archive field names to current field names.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_arch_<span class="dv">1</span> &lt;-<span class="st"> </span>df_arch_<span class="dv">0</span> <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">rename_at</span>(<span class="dt">.vars =</span> <span class="kw">vars</span>(df_harm_field<span class="op">$</span><span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>),
             <span class="dt">.funs =</span> <span class="cf">function</span>(x) {
-              <span class="kw">get_new_name</span>(x, df_harm, <span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>, <span class="st">`</span><span class="dt">New Database</span><span class="st">`</span>)
+              <span class="kw">get_new_name</span>(x, df_harm_field, <span class="st">`</span><span class="dt">Old Database</span><span class="st">`</span>, <span class="st">`</span><span class="dt">New Database</span><span class="st">`</span>)
             })</code></pre></div>
-<p>Propogate <code>apr_loc</code> field values to redundant fields: <code>tnt_loc</code>, <code>tpu_loc</code>, <code>wkq_loc</code></p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_new &lt;-<span class="st"> </span>df_new <span class="op">%&gt;%</span>
-<span class="st">  </span><span class="kw">mutate</span>(<span class="dt">tnt_loc =</span> arp_loc,
-         <span class="dt">tpu_loc =</span> arp_loc,
-         <span class="dt">wkq_loc =</span> arp_loc)</code></pre></div>
+<p><strong>SCRATCH THIS STEP</strong> Propogate <code>apr_loc</code> field values to redundant fields: <code>tnt_loc</code>, <code>tpu_loc</code>, <code>wkq_loc</code>.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># df_arch_1 &lt;- df_arch_1 %&gt;%</span>
+<span class="co">#   mutate(tnt_loc = arp_loc,</span>
+<span class="co">#          tpu_loc = arp_loc,</span>
+<span class="co">#          wkq_loc = arp_loc)</span></code></pre></div>
+<p>Rename archive <code>redcap_event_name</code>s to current <code>redcap_event_names</code>s.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_arch_<span class="dv">2</span> &lt;-<span class="st"> </span>df_arch_<span class="dv">1</span> <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">mutate</span>(<span class="dt">redcap_event_name =</span> <span class="kw">case_when</span>(
+    redcap_event_name <span class="op">==</span><span class="st"> &quot;bv1_arm_1&quot;</span>      <span class="op">~</span><span class="st"> &quot;bl_v_arm_1&quot;</span>,
+    redcap_event_name <span class="op">==</span><span class="st"> &quot;bv2_arm_1&quot;</span>      <span class="op">~</span><span class="st"> &quot;bl_v_arm_1&quot;</span>,
+    redcap_event_name <span class="op">==</span><span class="st"> &quot;06v1_cdx_arm_1&quot;</span> <span class="op">~</span><span class="st"> &quot;06_cdx_arm_1&quot;</span>,
+    redcap_event_name <span class="op">==</span><span class="st"> &quot;06v1_arm_1&quot;</span>     <span class="op">~</span><span class="st"> &quot;06_v_arm_1&quot;</span>,
+    redcap_event_name <span class="op">==</span><span class="st"> &quot;06v2_arm_1&quot;</span>     <span class="op">~</span><span class="st"> &quot;06_v_arm_1&quot;</span>,
+    redcap_event_name <span class="op">==</span><span class="st"> &quot;12v1_cdx_arm_1&quot;</span> <span class="op">~</span><span class="st"> &quot;12_cdx_arm_1&quot;</span>,
+    redcap_event_name <span class="op">==</span><span class="st"> &quot;12v1_arm_1&quot;</span>     <span class="op">~</span><span class="st"> &quot;12_v_arm_1&quot;</span>,
+    redcap_event_name <span class="op">==</span><span class="st"> &quot;12v2_arm_1&quot;</span>     <span class="op">~</span><span class="st"> &quot;12_v_arm_1&quot;</span>,
+    <span class="ot">TRUE</span> <span class="op">~</span><span class="st"> </span>redcap_event_name
+  ))
+
+<span class="co"># # Make a copy of `df_arch_3`</span>
+df_arch_<span class="dv">3</span> &lt;-<span class="st"> </span>df_arch_<span class="dv">2</span>
+<span class="co"># df_arch_3 &lt;- df_arch_2 %&gt;% get_nonempty_records() %&gt;% get_nonempty_fields()</span></code></pre></div>
+<p>Parse out rows that have <code>redcap_repeat_instrument</code>s from structure of current MAIN REDCap project.</p>
+<blockquote>
+<p><strong>Note</strong>: This part gets pretty complicated because we’re doing some unconventional data munging and dealing with lots of special cases.</p>
+</blockquote>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># Function that keeps only those values in a char vector that</span>
+<span class="co"># appear as fields/names in the passed df</span>
+keep_from_df_names &lt;-<span class="st"> </span><span class="cf">function</span>(xs, df) {
+  df_names &lt;-<span class="st"> </span><span class="kw">names</span>(df)
+  <span class="cf">for</span> (i <span class="cf">in</span> <span class="kw">seq_along</span>(xs)) { 
+    <span class="cf">if</span> (<span class="op">!</span>(xs[i] <span class="op">%in%</span><span class="st"> </span>df_names)) {
+      xs[i] &lt;-<span class="st"> </span><span class="ot">NA_character_</span> 
+    }
+  }
+  xs
+}
+
+<span class="co"># Function that does the heavy row-wise parsing by </span>
+<span class="co"># `ts_sub_id`, `redcap_event_name`, `redcap_repeat_instrument`, </span>
+parse_rri &lt;-<span class="st"> </span><span class="cf">function</span>(df, id, ren, rri, rri_test_field, rri_keep_fields) {
+  
+  <span class="co"># Erase (insert NAs) into df subset that will be copied in a new row below</span>
+  df_<span class="dv">1</span> &lt;-<span class="st"> </span>rlang<span class="op">::</span><span class="kw">duplicate</span>(df)
+  <span class="cf">if</span> (
+    <span class="op">!</span><span class="kw">identical</span>(
+      <span class="kw">which</span>(df_<span class="dv">1</span><span class="op">$</span>ts_sub_id <span class="op">==</span><span class="st"> </span>id <span class="op">&amp;</span><span class="st"> </span>
+<span class="st">            </span>df_<span class="dv">1</span><span class="op">$</span>redcap_event_name <span class="op">==</span><span class="st"> </span>ren <span class="op">&amp;</span>
+<span class="st">            </span><span class="kw">is.na</span>(df_<span class="dv">1</span><span class="op">$</span>redcap_repeat_instrument)),
+      <span class="kw">integer</span>(<span class="dv">0</span>))
+  ) {
+    df_<span class="dv">1</span>[<span class="kw">which</span>(df_<span class="dv">1</span><span class="op">$</span>ts_sub_id <span class="op">==</span><span class="st"> </span>id <span class="op">&amp;</span><span class="st"> </span>
+<span class="st">                   </span>df_<span class="dv">1</span><span class="op">$</span>redcap_event_name <span class="op">==</span><span class="st"> </span>ren <span class="op">&amp;</span>
+<span class="st">                   </span><span class="kw">is.na</span>(df_<span class="dv">1</span><span class="op">$</span>redcap_repeat_instrument)),
+           rri_keep_fields] &lt;-<span class="st"> </span><span class="ot">NA_character_</span>
+  }
+  
+  <span class="co"># Concatenate necessary fronter fields with passed `rri_keep_fields`</span>
+  rri_keep_fields_new &lt;-
+<span class="st">    </span><span class="kw">c</span>(
+      <span class="st">&quot;ts_sub_id&quot;</span>,
+      <span class="st">&quot;redcap_event_name&quot;</span>,
+      <span class="st">&quot;redcap_repeat_instrument&quot;</span>,
+      <span class="st">&quot;redcap_repeat_instance&quot;</span>,
+      rri_keep_fields
+    )
+  
+  <span class="co"># Create a new df keeping only necessary and passed `rri_keep_fields` and</span>
+  <span class="co"># populate the `redcap_repeat_instrument` field with passed `rri` string</span>
+  df_<span class="dv">2</span> &lt;-<span class="st"> </span>rlang<span class="op">::</span><span class="kw">duplicate</span>(df)
+  df_<span class="dv">2</span> &lt;-<span class="st"> </span>df_<span class="dv">2</span> <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">select</span>(rri_keep_fields_new) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">filter</span>(<span class="op">!</span><span class="kw">is.na</span>(ts_sub_id)) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">    </span><span class="kw">filter</span>(ts_sub_id <span class="op">==</span><span class="st"> </span>id) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">    </span><span class="kw">filter</span>(<span class="op">!</span><span class="kw">is.na</span>(redcap_event_name)) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">filter</span>(redcap_event_name <span class="op">==</span><span class="st"> </span>ren) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">filter</span>(<span class="kw">is.na</span>(redcap_repeat_instrument)) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">mutate</span>(<span class="dt">redcap_repeat_instrument =</span> rri)
+  
+  <span class="kw">bind_rows</span>(df_<span class="dv">1</span>, df_<span class="dv">2</span>)
+}</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># Reshape / clean-up `df_harm_instr` for this task</span>
+df_instr_desig &lt;-<span class="st"> </span>df_harm_instr <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(redcap_repeat_instrument <span class="op">==</span><span class="st"> </span><span class="dv">1</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(form <span class="op">!=</span><span class="st"> &quot;previsit_stability_screening&quot;</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(form <span class="op">!=</span><span class="st"> &quot;admin_reportable_event_form&quot;</span>)
+
+df_instr_desig[<span class="dv">6</span><span class="op">:</span><span class="kw">ncol</span>(df_instr_desig)] &lt;-<span class="st"> </span>
+<span class="st">  </span>df_instr_desig[<span class="dv">6</span><span class="op">:</span><span class="kw">ncol</span>(df_instr_desig)] <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span>purrr<span class="op">::</span><span class="kw">map_df</span>(<span class="cf">function</span>(x) <span class="kw">keep_from_df_names</span>(x, df_arch_<span class="dv">3</span>))
+
+df_instr_desig &lt;-<span class="st"> </span>df_instr_desig <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span>purrr<span class="op">::</span><span class="kw">map_df</span>(<span class="op">~</span><span class="st"> </span><span class="kw">replace_na</span>(.x, <span class="st">&quot;&quot;</span>)) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">unite</span>(<span class="st">&quot;keep_fields&quot;</span>, keep_fields_<span class="dv">001</span><span class="op">:</span>keep_fields_<span class="dv">132</span>, <span class="dt">sep =</span> <span class="st">&quot;,&quot;</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">mutate</span>(<span class="dt">keep_fields =</span> <span class="kw">str_extract_all</span>(keep_fields, <span class="st">&quot;</span><span class="ch">\\</span><span class="st">w+&quot;</span>)) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">na_if</span>(<span class="st">&quot;&quot;</span>)</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="cf">for</span> (id <span class="cf">in</span> <span class="kw">unique</span>(df_arch_<span class="dv">3</span><span class="op">$</span>ts_sub_id)) {
+  <span class="kw">cat</span>(<span class="kw">paste0</span>(<span class="st">&quot;Processing `ts_sub_id`: &quot;</span>, id, <span class="st">&quot;</span><span class="ch">\n</span><span class="st">&quot;</span>))
+  <span class="cf">for</span> (i <span class="cf">in</span> <span class="kw">seq_len</span>(<span class="kw">nrow</span>(df_instr_desig))) {
+    df_arch_<span class="dv">3</span> &lt;-
+<span class="st">      </span><span class="kw">parse_rri</span>(<span class="dt">df =</span> df_arch_<span class="dv">3</span>,
+                <span class="dt">id =</span> id,
+                <span class="dt">ren =</span> df_instr_desig[[i, <span class="st">&quot;unique_event_name&quot;</span>]],
+                <span class="dt">rri =</span> df_instr_desig[[i, <span class="st">&quot;form&quot;</span>]],
+                <span class="dt">rri_test_field =</span> df_instr_desig[[i, <span class="st">&quot;test_field&quot;</span>]],
+                <span class="dt">rri_keep_fields =</span> df_instr_desig[[i, <span class="st">&quot;keep_fields&quot;</span>]])
+  }
+}</code></pre></div>
+<pre><code>## Processing `ts_sub_id`: C1001
+## Processing `ts_sub_id`: C1002
+## Processing `ts_sub_id`: C1003
+## Processing `ts_sub_id`: C1004
+## Processing `ts_sub_id`: C1005
+## Processing `ts_sub_id`: C1005R
+## Processing `ts_sub_id`: C1006
+## Processing `ts_sub_id`: C1007
+## Processing `ts_sub_id`: C1008
+## Processing `ts_sub_id`: C1009
+## Processing `ts_sub_id`: C1010
+## Processing `ts_sub_id`: C1011
+## Processing `ts_sub_id`: C1012
+## Processing `ts_sub_id`: C1013
+## Processing `ts_sub_id`: C1014
+## Processing `ts_sub_id`: C1015
+## Processing `ts_sub_id`: C1016
+## Processing `ts_sub_id`: C1017
+## Processing `ts_sub_id`: C1018
+## Processing `ts_sub_id`: C1019
+## Processing `ts_sub_id`: C1020
+## Processing `ts_sub_id`: C1021
+## Processing `ts_sub_id`: C1022
+## Processing `ts_sub_id`: C1023
+## Processing `ts_sub_id`: C1024
+## Processing `ts_sub_id`: C1025
+## Processing `ts_sub_id`: C1026
+## Processing `ts_sub_id`: C1027
+## Processing `ts_sub_id`: C1028
+## Processing `ts_sub_id`: C1029
+## Processing `ts_sub_id`: C1031
+## Processing `ts_sub_id`: C1032
+## Processing `ts_sub_id`: C1033
+## Processing `ts_sub_id`: C1034
+## Processing `ts_sub_id`: C1035
+## Processing `ts_sub_id`: C1036
+## Processing `ts_sub_id`: C1037
+## Processing `ts_sub_id`: C1038
+## Processing `ts_sub_id`: C1039
+## Processing `ts_sub_id`: C2001
+## Processing `ts_sub_id`: C2002
+## Processing `ts_sub_id`: C2003
+## Processing `ts_sub_id`: C2004
+## Processing `ts_sub_id`: C2005
+## Processing `ts_sub_id`: C2006
+## Processing `ts_sub_id`: C2007
+## Processing `ts_sub_id`: C2008
+## Processing `ts_sub_id`: C2009
+## Processing `ts_sub_id`: C2010
+## Processing `ts_sub_id`: C2011
+## Processing `ts_sub_id`: C2012
+## Processing `ts_sub_id`: C2013
+## Processing `ts_sub_id`: C2014
+## Processing `ts_sub_id`: C2015
+## Processing `ts_sub_id`: C2016
+## Processing `ts_sub_id`: C2017</code></pre>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># write_csv(df_arch_3, &quot;df_arch_3.csv&quot;, na = &quot;&quot;)</span></code></pre></div>
+<p>Keep only fields in <code>df_curr</code> that also appear in <code>df_arch_3</code>.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">names_df_arch_<span class="dv">3</span> &lt;-<span class="st"> </span><span class="kw">names</span>(df_arch_<span class="dv">3</span>)
+names_df_curr &lt;-<span class="st"> </span><span class="kw">names</span>(df_curr)
+
+new_names_df_curr &lt;-<span class="st"> </span>names_df_curr[names_df_curr <span class="op">%in%</span><span class="st"> </span>names_df_arch_<span class="dv">3</span>]
+
+df_curr_<span class="dv">0</span> &lt;-<span class="st"> </span>df_curr <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">select</span>(new_names_df_curr)</code></pre></div>
+<p>Get rid of any data that is being entered manually.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_curr_<span class="dv">1</span> &lt;-<span class="st"> </span>df_curr_<span class="dv">0</span>
+<span class="co"># filters and deselects will go here once I get word from Jacob/Sarah</span></code></pre></div>
+<p>Row-bind <code>df_arch_3</code> and <code>df_curr_1</code> to create <code>df_arch_curr</code>.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_arch_curr &lt;-<span class="st"> </span><span class="kw">bind_rows</span>(df_arch_<span class="dv">3</span>, df_curr_<span class="dv">1</span>)
+<span class="co"># df_arch_curr &lt;- bind_rows(df_arch_3, df_curr_1) %&gt;%</span>
+<span class="co">#   get_nonempty_records() %&gt;% </span>
+<span class="co">#   get_nonempty_fields()</span>
+<span class="kw">write_csv</span>(df_arch_curr, <span class="st">&quot;df_arch_curr.csv&quot;</span>, <span class="dt">na =</span> <span class="st">&quot;&quot;</span>)</code></pre></div>
+<p>Renumber <code>redcap_repeat_instance</code> values based on dates of the appropriate date field (i.e., <code>*_dat</code> or <code>*_dtc</code> from <code>test_field</code> in <code>df_instr_desig</code>).</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">calc_rri_instance_num &lt;-<span class="st"> </span><span class="cf">function</span>(df, id, ren, rri, rri_date_field) {
+  
+  <span class="co"># cat(paste0(class(rri_date_field), &quot; &quot;))</span>
+  <span class="kw">cat</span>(<span class="kw">paste0</span>(rri_date_field, <span class="st">&quot; &quot;</span>))
+  
+  <span class="co"># Set aside irrelevant rows</span>
+  df_<span class="dv">1</span> &lt;-<span class="st"> </span>df <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">filter</span>(ts_sub_id <span class="op">!=</span><span class="st"> </span>id <span class="op">|</span><span class="st"> </span>
+<span class="st">             </span>redcap_event_name <span class="op">!=</span><span class="st"> </span>ren <span class="op">|</span>
+<span class="st">             </span>(redcap_repeat_instrument <span class="op">!=</span><span class="st"> </span>rri <span class="op">|</span>
+<span class="st">                </span><span class="kw">is.na</span>(redcap_repeat_instrument)))
+  
+  <span class="co"># Count the `redcap_repeat_instances` for the given</span>
+  <span class="co"># `redcap_event_name` and `redcap_repeat_instrument`</span>
+  df_<span class="dv">2</span> &lt;-<span class="st"> </span>df <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">filter</span>(ts_sub_id <span class="op">==</span><span class="st"> </span>id <span class="op">&amp;</span>
+<span class="st">             </span>redcap_event_name <span class="op">==</span><span class="st"> </span>ren <span class="op">&amp;</span>
+<span class="st">             </span>redcap_repeat_instrument <span class="op">==</span><span class="st"> </span>rri) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">arrange</span>(ts_sub_id,
+            redcap_event_name,
+            redcap_repeat_instrument,
+            <span class="op">!!</span><span class="kw">ensym</span>(rri_date_field)) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">mutate</span>(<span class="dt">rri_instance_unit =</span> 1L) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">group_by</span>(ts_sub_id,
+             redcap_event_name,
+             redcap_repeat_instrument) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">mutate</span>(<span class="dt">redcap_repeat_instance =</span> <span class="kw">cumsum</span>(rri_instance_unit)) <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">ungroup</span>() <span class="op">%&gt;%</span>
+<span class="st">    </span><span class="kw">select</span>(<span class="op">-</span>rri_instance_unit)
+  
+  <span class="kw">bind_rows</span>(df_<span class="dv">1</span>, df_<span class="dv">2</span>)
+}
+
+df_arch_curr_<span class="dv">0</span> &lt;-<span class="st"> </span>df_arch_curr <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">mutate_all</span>(<span class="dt">.funs =</span> as.character) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">mutate</span>(<span class="dt">redcap_repeat_instance =</span> <span class="kw">as.integer</span>(redcap_repeat_instance))
+
+df_instr_desig_<span class="dv">1</span> &lt;-<span class="st"> </span>df_instr_desig <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(test_field <span class="op">!=</span><span class="st"> &quot;res_dtc&quot;</span>, 
+         test_field <span class="op">!=</span><span class="st"> &quot;msc_d1&quot;</span>,
+         test_field <span class="op">!=</span><span class="st"> &quot;are_dat&quot;</span>) <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">mutate</span>(<span class="dt">test_field =</span> <span class="kw">as.character</span>(test_field))</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="cf">for</span> (id <span class="cf">in</span> <span class="kw">unique</span>(df_arch_curr_<span class="dv">0</span><span class="op">$</span>ts_sub_id)) {
+  <span class="kw">cat</span>(<span class="kw">paste0</span>(<span class="st">&quot;</span><span class="ch">\n</span><span class="st">Processing `ts_sub_id`: &quot;</span>, id, <span class="st">&quot;</span><span class="ch">\n</span><span class="st">&quot;</span>))
+  <span class="cf">for</span> (i <span class="cf">in</span> <span class="kw">seq_len</span>(<span class="kw">nrow</span>(df_instr_desig_<span class="dv">1</span>))) {
+    df_arch_curr_<span class="dv">0</span> &lt;-
+<span class="st">      </span><span class="kw">calc_rri_instance_num</span>(<span class="dt">df =</span> df_arch_curr_<span class="dv">0</span>,
+                <span class="dt">id =</span> id,
+                <span class="dt">ren =</span> df_instr_desig_<span class="dv">1</span>[[i, <span class="st">&quot;unique_event_name&quot;</span>]],
+                <span class="dt">rri =</span> df_instr_desig_<span class="dv">1</span>[[i, <span class="st">&quot;form&quot;</span>]],
+                <span class="dt">rri_date_field =</span> df_instr_desig_<span class="dv">1</span>[[i, <span class="st">&quot;test_field&quot;</span>]])
+    }
+}</code></pre></div>
+<pre><code>## 
+## Processing `ts_sub_id`: C1001
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1002
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1003
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1004
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1005
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1005R
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1006
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1007
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1008
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1009
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1010
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1011
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1012
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1013
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1014
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1015
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1016
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1017
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1018
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1019
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1020
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1021
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1022
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1023
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1024
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1025
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1026
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1027
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1028
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1029
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1031
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1032
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1033
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1034
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1035
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1036
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1037
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1038
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1039
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2001
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2002
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2003
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2004
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2005
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2006
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2007
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2008
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2009
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2010
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2011
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2012
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2013
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2014
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2015
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2016
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2017
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1040
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1041
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1042
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1043
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1044
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1045
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1046
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C1047
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat 
+## Processing `ts_sub_id`: C2018
+## con_dtc em_dat lsn_dat dem_dat b6_dat dsa_dat mrp_dat a5_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat rx_dat c2_dat cdr_dat d1_dat lsn_dat b6_dat dsa_dat</code></pre>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># write_csv(df_arch_curr_0, &quot;df_arch_curr_0.csv&quot;, na = &quot;&quot;)</span></code></pre></div>
 <p>Clean out any fields that don’t have any values.</p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_new &lt;-<span class="st"> </span>df_new <span class="op">%&gt;%</span><span class="st"> </span>
-<span class="st">  </span><span class="kw">select_if</span>(
-    <span class="cf">function</span>(x) {
-      <span class="kw">any</span>(<span class="op">!</span><span class="kw">is.na</span>(x))
-    })</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_arch_curr_<span class="dv">1</span> &lt;-<span class="st"> </span>df_arch_curr_<span class="dv">0</span> <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">get_nonempty_records</span>() <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">get_nonempty_fields</span>()
+
+<span class="co"># print(object.size(df_arch_curr_1), units = &quot;auto&quot;)</span></code></pre></div>
+<p>Clean out any rows that only have data in the fronter fields: <code>ts_sub_id</code>, <code>redcap_event_name</code>, <code>redcap_repeat_instrument</code>, <code>redcap_repeat_instance</code>, <code>redcap_data_access_group</code>.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">names_df_arch_curr_<span class="dv">1</span> &lt;-<span class="st"> </span><span class="kw">names</span>(df_arch_curr_<span class="dv">1</span>)
+fields_to_remove &lt;-<span class="st"> </span>
+<span class="st">  </span><span class="kw">c</span>(<span class="st">&quot;ts_sub_id&quot;</span>
+    , <span class="st">&quot;redcap_event_name&quot;</span>
+    , <span class="st">&quot;redcap_repeat_instrument&quot;</span>
+    , <span class="st">&quot;redcap_repeat_instance&quot;</span>
+    , <span class="st">&quot;redcap_data_access_group&quot;</span>
+    )
+rel_fields &lt;-<span class="st"> </span>
+<span class="st">  </span>names_df_arch_curr_<span class="dv">1</span>[<span class="op">!</span>(names_df_arch_curr_<span class="dv">1</span> <span class="op">%in%</span><span class="st"> </span>fields_to_remove)]</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">df_arch_curr_<span class="dv">2</span> &lt;-<span class="st"> </span><span class="kw">get_nonempty_records</span>(df_arch_curr_<span class="dv">1</span>, rel_fields)
+
+<span class="co"># print(object.size(df_arch_curr_2), units = &quot;auto&quot;)</span></code></pre></div>
+<p>Split data in two:</p>
+<ol style="list-style-type: decimal">
+<li>Records without repeating instruments.</li>
+<li>Records with repeating instruments.</li>
+</ol>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># 1. Records without repeating instruments</span>
+df_arch_curr_nonrep &lt;-<span class="st"> </span>df_arch_curr_<span class="dv">2</span> <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(<span class="kw">is.na</span>(redcap_repeat_instrument) <span class="op">&amp;</span><span class="st"> </span><span class="kw">is.na</span>(redcap_repeat_instance))
+
+<span class="co"># 2. Records with repeating instruments</span>
+df_arch_curr_rep &lt;-<span class="st"> </span>df_arch_curr_<span class="dv">2</span> <span class="op">%&gt;%</span><span class="st"> </span>
+<span class="st">  </span><span class="kw">filter</span>(<span class="op">!</span><span class="kw">is.na</span>(redcap_repeat_instrument) <span class="op">|</span><span class="st"> </span><span class="op">!</span><span class="kw">is.na</span>(redcap_repeat_instance))</code></pre></div>
 </div>
 <div id="write-data" class="section level2">
 <h2>Write Data</h2>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">write_csv</span>(df_new, 
-          <span class="kw">paste0</span>(<span class="st">&quot;DATA_TO_IMPORT_&quot;</span>, <span class="kw">Sys.Date</span>(), <span class="st">&quot;.csv&quot;</span>), 
-          <span class="dt">na =</span> <span class="st">&quot;&quot;</span>)</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">write_csv</span>(<span class="dt">x =</span> df_arch_curr_nonrep, <span class="dt">na =</span> <span class="st">&quot;&quot;</span>,
+          <span class="dt">path =</span> <span class="kw">paste0</span>(<span class="st">&quot;IMPORT_DATA_NONREPEAT_&quot;</span>, <span class="kw">Sys.Date</span>(), <span class="st">&quot;.csv&quot;</span>))
+<span class="kw">write_csv</span>(<span class="dt">x =</span> df_arch_curr_rep, <span class="dt">na =</span> <span class="st">&quot;&quot;</span>,
+          <span class="dt">path =</span> <span class="kw">paste0</span>(<span class="st">&quot;IMPORT_DATA_REPEAT_&quot;</span>, <span class="kw">Sys.Date</span>(), <span class="st">&quot;.csv&quot;</span>))</code></pre></div>
 <hr />
 <hr />
 <hr />
@@ -467,10 +942,10 @@ df_orig &lt;-<span class="st"> </span>df_orig <span class="op">%&gt;%</span><spa
 ##   a     e     f         d
 ##   &lt;chr&gt; &lt;chr&gt; &lt;chr&gt; &lt;int&gt;
 ## 1 1     a     A         3
-## 2 2     b     B         5
-## 3 3     c     C         4
-## 4 4     d     D         1
-## 5 5     e     E         2</code></pre>
+## 2 2     b     B         4
+## 3 3     c     C         1
+## 4 4     d     D         2
+## 5 5     e     E         5</code></pre>
 <hr />
 <hr />
 <hr />
